@@ -7,56 +7,111 @@ import pandas as pd
 import os
 import uuid
 import numpy as np
+from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as ExcelImage
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from datetime import date
+import httpx
+
+# Load .env file
+load_dotenv()
 
 app = FastAPI()
 
-# Data model
-class WindDataPoint(BaseModel):
-    avg_wind_speed: float
-    avg_wind_direction: float
+# Read environment variable
+ENVIRONMENT = os.getenv("ENVIRONMENT", "local")
 
+if ENVIRONMENT == "production":
+    allowed_origins = [
+        "https://your-production-frontend.com"
+    ]
+else:
+    allowed_origins = [
+        "http://localhost:3000",
+        "null"
+    ]
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Data models
 class WindDataRequest(BaseModel):
     station_name: str
-    data: List[WindDataPoint]
+    latitude: float
+    longitude: float
+    start: date
+    end: date
 
-# API Endpoint to generate Excel + JPG
 @app.post("/generate-files")
 async def generate_files(request: WindDataRequest):
-
     file_id = str(uuid.uuid4())
 
-    # Build DataFrame
-    df = pd.DataFrame([{
-        "Avg Wind Speed (m/s)": point.avg_wind_speed,
-        "Avg Wind Direction (degrees)": point.avg_wind_direction
-    } for point in request.data])
+    # Build NASA POWER API URL
+    nasa_api_url = (
+        "https://power.larc.nasa.gov/api/temporal/daily/point"
+        f"?parameters=WS2M,WD2M"
+        f"&community=RE"
+        f"&latitude={request.latitude}"
+        f"&longitude={request.longitude}"
+        f"&start={request.start.strftime('%Y%m%d')}"
+        f"&end={request.end.strftime('%Y%m%d')}"
+        "&format=JSON"
+    )
 
-    # Generate Excel file
-    excel_filename = f"{file_id}_wind_data.xlsx"
-    df.to_excel(excel_filename, index=False)
+    # Fetch data from NASA POWER API
+    async with httpx.AsyncClient() as client:
+        nasa_response = await client.get(nasa_api_url)
 
-    #### --- 1st Chart: Scatter Polar Chart --- ####
+    if nasa_response.status_code != 200:
+        return {"error": "Failed to fetch data from NASA POWER API"}
+
+    nasa_json = nasa_response.json()
+
+    # Extract WS2M and WD2M
+    daily_data = nasa_json["properties"]["parameter"]
+    ws2m = daily_data["WS2M"]
+    wd2m = daily_data["WD2M"]
+
+    df_nasa = pd.DataFrame({
+        "Date": pd.to_datetime(list(ws2m.keys()), format="%Y%m%d"),
+        "Wind Speed (m/s)": list(ws2m.values()),
+        "Wind Direction (degrees)": list(wd2m.values())
+    })
+
+    df_nasa["YearMonth"] = df_nasa["Date"].dt.to_period("M")
+
+    monthly_avg = df_nasa.groupby("YearMonth").agg({
+        "Wind Speed (m/s)": "mean",
+        "Wind Direction (degrees)": "mean"
+    }).reset_index()
+
+    monthly_avg["YearMonth"] = monthly_avg["YearMonth"].astype(str)
+
+    #### Scatter Polar Chart
     fig1 = plt.figure(figsize=(6, 6))
     ax1 = fig1.add_subplot(111, polar=True)
 
-    theta = df["Avg Wind Direction (degrees)"] * (np.pi / 180.0)
-    r = df["Avg Wind Speed (m/s)"]
+    theta = df_nasa["Wind Direction (degrees)"] * (np.pi / 180.0)
+    r = df_nasa["Wind Speed (m/s)"]
 
-    # Scatter plot
     scatter = ax1.scatter(theta, r, c=r, cmap='viridis', alpha=0.75)
     plt.colorbar(scatter, ax=ax1, label='Wind Speed (m/s)')
 
     ax1.set_theta_zero_location('N')
     ax1.set_theta_direction(-1)
 
-    # Degree labels every 10°
     degree_ticks = np.arange(0, 360, 10)
     ax1.set_xticks(np.deg2rad(degree_ticks))
     ax1.set_xticklabels([f"{d}°" for d in degree_ticks])
 
-    # Cardinal points
-    cardinal_degrees = [0, 90, 180, 270]
-    for label, degree in zip(['N', 'E', 'S', 'W'], cardinal_degrees):
+    for label, degree in zip(['N', 'E', 'S', 'W'], [0, 90, 180, 270]):
         angle_rad = np.deg2rad(degree)
         ax1.text(angle_rad, ax1.get_rmax() + 0.1 * ax1.get_rmax(), label,
                  horizontalalignment='center', verticalalignment='center',
@@ -64,22 +119,20 @@ async def generate_files(request: WindDataRequest):
 
     ax1.set_title(f"Polar Wind Chart (Scatter) - {request.station_name}", pad=20)
 
-    # Save scatter chart
     scatter_jpg_filename = f"{file_id}_wind_scatter_chart.jpg"
     plt.savefig(scatter_jpg_filename, dpi=300, bbox_inches='tight')
     plt.close()
 
-    #### --- 2nd Chart: Wind Rose (Bar Chart) --- ####
+    #### Wind Rose Bar Chart
     fig2 = plt.figure(figsize=(6, 6))
     ax2 = fig2.add_subplot(111, polar=True)
 
-    # Sort bars for better display
     sort_idx = np.argsort(theta)
     theta_sorted = theta.iloc[sort_idx]
     r_sorted = r.iloc[sort_idx]
 
     bars = ax2.bar(theta_sorted, r_sorted,
-                   width=np.deg2rad(8),  # 8 degree width
+                   width=np.deg2rad(8),
                    bottom=0.0,
                    color=plt.cm.viridis(r_sorted / r_sorted.max()),
                    alpha=0.75,
@@ -88,44 +141,69 @@ async def generate_files(request: WindDataRequest):
     ax2.set_theta_zero_location('N')
     ax2.set_theta_direction(-1)
 
-    # Degree labels every 10°
     ax2.set_xticks(np.deg2rad(degree_ticks))
     ax2.set_xticklabels([f"{d}°" for d in degree_ticks])
 
-    # Cardinal points
-    for label, degree in zip(['N', 'E', 'S', 'W'], cardinal_degrees):
+    for label, degree in zip(['N', 'E', 'S', 'W'], [0, 90, 180, 270]):
         angle_rad = np.deg2rad(degree)
         ax2.text(angle_rad, ax2.get_rmax() + 0.1 * ax2.get_rmax(), label,
                  horizontalalignment='center', verticalalignment='center',
                  fontsize=12, fontweight='bold', color='black')
 
-    # Add colorbar
     sm = plt.cm.ScalarMappable(cmap='viridis', norm=plt.Normalize(0, r_sorted.max()))
     sm.set_array([])
     plt.colorbar(sm, ax=ax2, pad=0.1, label='Wind Speed (m/s)')
 
     ax2.set_title(f"Polar Wind Rose (Bar Chart) - {request.station_name}", pad=20)
 
-    # Save bar chart
     bar_jpg_filename = f"{file_id}_wind_bar_chart.jpg"
     plt.savefig(bar_jpg_filename, dpi=300, bbox_inches='tight')
     plt.close()
 
-    #### --- Return URLs --- ####
+    
+
+    #### Generate Excel with images + NASA data
+
+    excel_filename = f"{file_id}_wind_data_with_charts.xlsx"
+
+    with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
+        # Now Wind Data sheet contains NASA daily data
+        df_nasa[["Date", "Wind Speed (m/s)", "Wind Direction (degrees)"]].to_excel(writer, sheet_name='Wind Data', index=False)
+        
+        # Monthly summary
+        monthly_avg.to_excel(writer, sheet_name='Monthly Summary', index=False)
+
+    wb = load_workbook(excel_filename)
+
+    # Scatter chart sheet
+    ws_scatter = wb.create_sheet(title='Scatter Chart')
+    img1 = ExcelImage(scatter_jpg_filename)
+    img1.anchor = 'A1'
+    ws_scatter.add_image(img1)
+
+    # Wind rose chart sheet
+    ws_bar = wb.create_sheet(title='Wind Rose Chart')
+    img2 = ExcelImage(bar_jpg_filename)
+    img2.anchor = 'A1'
+    ws_bar.add_image(img2)
+
+    wb.save(excel_filename)
+
+    # Cleanup images
+    os.remove(scatter_jpg_filename)
+    os.remove(bar_jpg_filename)
+
     return {
-        "excel_file_url": f"/download/{excel_filename}",
-        "scatter_chart_file_url": f"/download/{scatter_jpg_filename}",
-        "bar_chart_file_url": f"/download/{bar_jpg_filename}"
+        "excel_file_url": f"/download/{excel_filename}"
     }
 
-
-
-
-
-# Download Endpoint
 @app.get("/download/{filename}")
 async def download_file(filename: str):
     file_path = os.path.join(".", filename)
     if os.path.isfile(file_path):
-        return FileResponse(path=file_path, filename=filename, media_type='application/octet-stream')
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
     return {"error": "File not found"}
