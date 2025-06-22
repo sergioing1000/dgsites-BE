@@ -36,60 +36,7 @@ openpyxl
 
 ---
 
-## Installation
-
-1. **Clone the repository:**
-
-```bash
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
-```
-
-2. **Create a virtual environment:**
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. **Install dependencies:**
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Environment Variables
-
-Create a `.env` file in the root directory:
-
-```env
-ENVIRONMENT=local
-```
-
-For production:
-
-```env
-ENVIRONMENT=production
-```
-
----
-
-## Running the Application
-
-### Local Development
-
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-This will start the FastAPI server at:  
-[http://localhost:8000](http://localhost:8000)
-
----
-
-## API Endpoints
+## API Endpoints ✔️
 
 ### `POST /generate-files`
 
