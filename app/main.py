@@ -11,11 +11,10 @@ import httpx
 import numpy as np
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
-from openpyxl.styles import numbers
+from openpyxl.styles import numbers, Alignment
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from datetime import date, datetime
-
 
 # Load .env file
 load_dotenv()
@@ -33,7 +32,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
@@ -108,7 +107,8 @@ async def generate_files(request: WindDataRequest):
                  horizontalalignment='center', verticalalignment='center',
                  fontsize=12, fontweight='bold', color='black')
 
-    ax1.set_title(f"Polar Wind Chart (Scatter) - {request.station_name}", pad=20)
+    # (8) Remove "(scatter)" from title
+    ax1.set_title(f"Polar Wind Chart - {request.station_name}", pad=20)
 
     scatter_jpg_filename = f"{file_id}_wind_scatter_chart.jpg"
     plt.savefig(scatter_jpg_filename, dpi=300, bbox_inches='tight')
@@ -145,23 +145,22 @@ async def generate_files(request: WindDataRequest):
     sm.set_array([])
     plt.colorbar(sm, ax=ax2, pad=0.1, label='Wind Speed (m/s)')
 
-    ax2.set_title(f"Polar Wind Rose (Bar Chart) - {request.station_name}", pad=20)
+    # (9) Remove "(Bar Chart)" from title
+    ax2.set_title(f"Polar Wind Rose - {request.station_name}", pad=20)
 
     bar_jpg_filename = f"{file_id}_wind_bar_chart.jpg"
     plt.savefig(bar_jpg_filename, dpi=300, bbox_inches='tight')
     plt.close()
 
     # Chart 3: Monthly Summary Polar Chart
-    fig5 = plt.figure(figsize=(6,6))
+    fig5 = plt.figure(figsize=(6, 6))
     ax5 = fig5.add_subplot(111, polar=True)
 
     theta5 = monthly_avg["Wind Direction (degrees)"] * (np.pi / 180.0)
     r5 = monthly_avg["Wind Speed (m/s)"]
 
+    # (10) No labels on scatter
     scatter5 = ax5.scatter(theta5, r5, c=r5, cmap='plasma', s=100, edgecolors='black', alpha=0.8)
-
-    for i, month in enumerate(monthly_avg["YearMonth"]):
-        ax5.text(theta5.iloc[i], r5.iloc[i] + 0.1, month, fontsize=10, ha='center', va='center')
 
     plt.colorbar(scatter5, ax=ax5, pad=0.1, label='Wind Speed (m/s)')
 
@@ -191,7 +190,7 @@ async def generate_files(request: WindDataRequest):
         monthly_avg.to_excel(writer, sheet_name='Monthly Summary', index=False)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         info_df = pd.DataFrame({
-            "Parameter": ["Station Name", "Latitude", "Longitude", "Start Date", "End Date", "Author", "Generated At"],
+            "Parameter": ["Station Name", "Latitude", "Longitude", "Start Date", "End Date", "Author", "Generated At", "Google Maps Link"],
             "Value": [
                 request.station_name,
                 request.latitude,
@@ -199,14 +198,15 @@ async def generate_files(request: WindDataRequest):
                 request.start.strftime("%Y-%m-%d"),
                 request.end.strftime("%Y-%m-%d"),
                 "Sergio Cruz",
-                now_str
+                now_str,
+                f"https://www.google.com/maps?q={request.latitude},{request.longitude}"
             ]
         })
         info_df.to_excel(writer, sheet_name='Info', index=False)
 
     wb = load_workbook(excel_filename)
 
-    # Adjust columns and format Date column
+    # (1-3) Wind Data sheet formatting
     ws_wind = wb["Wind Data"]
     for column_cells in ws_wind.columns:
         length = max(len(str(cell.value)) for cell in column_cells)
@@ -214,12 +214,34 @@ async def generate_files(request: WindDataRequest):
 
     for cell in ws_wind["A"][1:]:
         cell.number_format = 'DD-MMM-YY'
+        cell.alignment = Alignment(horizontal='center')
 
-    for sheet_name in ["Monthly Summary", "Info"]:
-        ws = wb[sheet_name]
-        for column_cells in ws.columns:
-            length = max(len(str(cell.value)) for cell in column_cells)
-            ws.column_dimensions[column_cells[0].column_letter].width = length + 2
+    for cell in ws_wind["B"][1:]:
+        cell.number_format = '0.00'
+        cell.alignment = Alignment(horizontal='right')
+
+    for cell in ws_wind["C"][1:]:
+        cell.number_format = '0'
+        cell.alignment = Alignment(horizontal='center')
+
+    # (4-6) Monthly Summary sheet formatting
+    ws_summary = wb["Monthly Summary"]
+    for cell in ws_summary["A"][1:]:
+        cell.alignment = Alignment(horizontal='center')
+
+    for cell in ws_summary["B"][1:]:
+        cell.number_format = '0.00'
+        cell.alignment = Alignment(horizontal='right')
+
+    for cell in ws_summary["C"][1:]:
+        cell.number_format = '0'
+        cell.alignment = Alignment(horizontal='center')
+
+    # Auto width for Info
+    ws_info = wb["Info"]
+    for column_cells in ws_info.columns:
+        length = max(len(str(cell.value)) for cell in column_cells)
+        ws_info.column_dimensions[column_cells[0].column_letter].width = length + 2
 
     # Add charts
     ws_scatter = wb.create_sheet(title='Scatter Chart')
