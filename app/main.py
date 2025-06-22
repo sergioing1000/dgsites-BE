@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List
 import matplotlib.pyplot as plt
 import pandas as pd
+
 import os
 import uuid
+import httpx
+
 import numpy as np
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
@@ -13,7 +15,7 @@ from openpyxl.styles import numbers
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from datetime import date, datetime
-import httpx
+
 
 # Load .env file
 load_dotenv()
@@ -35,7 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Data model
 class WindDataRequest(BaseModel):
     station_name: str
     latitude: float
@@ -150,48 +151,36 @@ async def generate_files(request: WindDataRequest):
     plt.savefig(bar_jpg_filename, dpi=300, bbox_inches='tight')
     plt.close()
 
-    # Chart 3: Monthly Speed Polar Chart
-    fig3 = plt.figure(figsize=(6,6))
-    ax3 = fig3.add_subplot(111, polar=True)
+    # Chart 3: Monthly Summary Polar Chart
+    fig5 = plt.figure(figsize=(6,6))
+    ax5 = fig5.add_subplot(111, polar=True)
 
-    theta3 = np.arange(len(monthly_avg)) * (2 * np.pi / len(monthly_avg))
-    r3 = monthly_avg["Wind Speed (m/s)"]
+    theta5 = monthly_avg["Wind Direction (degrees)"] * (np.pi / 180.0)
+    r5 = monthly_avg["Wind Speed (m/s)"]
 
-    bars3 = ax3.bar(theta3, r3,
-                    width=0.5,
-                    bottom=0.0,
-                    color=plt.cm.viridis(r3 / r3.max()),
-                    alpha=0.75,
-                    edgecolor='black')
+    scatter5 = ax5.scatter(theta5, r5, c=r5, cmap='plasma', s=100, edgecolors='black', alpha=0.8)
 
-    ax3.set_xticks(theta3)
-    ax3.set_xticklabels(monthly_avg["YearMonth"], fontsize=10)
-    ax3.set_title(f"Monthly Avg Wind Speed (Polar) - {request.station_name}", pad=20)
+    for i, month in enumerate(monthly_avg["YearMonth"]):
+        ax5.text(theta5.iloc[i], r5.iloc[i] + 0.1, month, fontsize=10, ha='center', va='center')
 
-    monthly_speed_chart = f"{file_id}_monthly_wind_speed_polar.jpg"
-    plt.savefig(monthly_speed_chart, dpi=300, bbox_inches='tight')
-    plt.close()
+    plt.colorbar(scatter5, ax=ax5, pad=0.1, label='Wind Speed (m/s)')
 
-    # Chart 4: Monthly Direction Polar Chart
-    fig4 = plt.figure(figsize=(6,6))
-    ax4 = fig4.add_subplot(111, polar=True)
+    ax5.set_theta_zero_location('N')
+    ax5.set_theta_direction(-1)
 
-    theta4 = np.arange(len(monthly_avg)) * (2 * np.pi / len(monthly_avg))
-    r4 = monthly_avg["Wind Direction (degrees)"]
+    ax5.set_xticks(np.deg2rad(degree_ticks))
+    ax5.set_xticklabels([f"{d}°" for d in degree_ticks])
 
-    bars4 = ax4.bar(theta4, r4,
-                    width=0.5,
-                    bottom=0.0,
-                    color=plt.cm.plasma(r4 / r4.max()),
-                    alpha=0.75,
-                    edgecolor='black')
+    for label, degree in zip(['N', 'E', 'S', 'W'], [0, 90, 180, 270]):
+        angle_rad = np.deg2rad(degree)
+        ax5.text(angle_rad, ax5.get_rmax() + 0.1 * ax5.get_rmax(), label,
+                 horizontalalignment='center', verticalalignment='center',
+                 fontsize=12, fontweight='bold', color='black')
 
-    ax4.set_xticks(theta4)
-    ax4.set_xticklabels(monthly_avg["YearMonth"], fontsize=10)
-    ax4.set_title(f"Monthly Avg Wind Direction (Polar) - {request.station_name}", pad=20)
+    ax5.set_title(f"Monthly Summary Polar Chart - {request.station_name}", pad=20)
 
-    monthly_direction_chart = f"{file_id}_monthly_wind_direction_polar.jpg"
-    plt.savefig(monthly_direction_chart, dpi=300, bbox_inches='tight')
+    monthly_summary_polar_chart = f"{file_id}_monthly_summary_polar.jpg"
+    plt.savefig(monthly_summary_polar_chart, dpi=300, bbox_inches='tight')
     plt.close()
 
     # Generate Excel
@@ -243,22 +232,16 @@ async def generate_files(request: WindDataRequest):
     img2.anchor = 'A1'
     ws_bar.add_image(img2)
 
-    ws_speed = wb.create_sheet(title='Monthly Speed Polar')
-    img3 = ExcelImage(monthly_speed_chart)
-    img3.anchor = 'A1'
-    ws_speed.add_image(img3)
-
-    ws_direction = wb.create_sheet(title='Monthly Direction Polar')
-    img4 = ExcelImage(monthly_direction_chart)
-    img4.anchor = 'A1'
-    ws_direction.add_image(img4)
+    ws_summary_polar = wb.create_sheet(title='Monthly Summary Polar')
+    img5 = ExcelImage(monthly_summary_polar_chart)
+    img5.anchor = 'A1'
+    ws_summary_polar.add_image(img5)
 
     wb.save(excel_filename)
 
     os.remove(scatter_jpg_filename)
     os.remove(bar_jpg_filename)
-    os.remove(monthly_speed_chart)
-    os.remove(monthly_direction_chart)
+    os.remove(monthly_summary_polar_chart)
 
     return {
         "excel_file_url": f"/download/{excel_filename}"
