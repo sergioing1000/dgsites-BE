@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: ""
-    startCommand: python -m uvicorn main:app --reload --port $PORT
+    startCommand: python -m uvicorn main:app --reload
     envVars:
       - key: ENVIRONMENT
         value: production
