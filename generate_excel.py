@@ -87,6 +87,14 @@ def generate_excel_with_charts(file_id, station_name, latitude, longitude, start
         })
         df_solar.to_excel(writer, sheet_name='Solar Radiation', index=False)
 
+        # Monthly Solar Radiation (Bar chart)
+        df_solar["YearMonth"] = df_solar["Date"].dt.to_period("M")
+        monthly_solar_avg = df_solar.groupby("YearMonth").agg({
+            "Solar Radiation (kWh/m²/day)": "mean"
+        }).reset_index()
+        monthly_solar_avg["YearMonth"] = monthly_solar_avg["YearMonth"].astype(str)
+        monthly_solar_avg.to_excel(writer, sheet_name='Monthly Solar Radiation', index=False)
+
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         info_df = pd.DataFrame({
             "Parameter": ["Station Name", "Latitude", "Longitude", "Start Date", "End Date", "Author", "Generated At", "Google Maps Link"],
@@ -119,6 +127,7 @@ def generate_excel_with_charts(file_id, station_name, latitude, longitude, start
     auto_width(wb["Wind Data"])
     auto_width(wb["Monthly Summary"])
     auto_width(wb["Solar Radiation"])
+    auto_width(wb["Monthly Solar Radiation"])
     auto_width(wb["Info"])
 
     ws = wb["Wind Data"]
@@ -135,20 +144,59 @@ def generate_excel_with_charts(file_id, station_name, latitude, longitude, start
     format_cells(ws3, "A", "DD-MMM-YY", "center")
     format_cells(ws3, "B", "0.00", "right")
 
+    ws4 = wb["Monthly Solar Radiation"]
+    format_cells(ws4, "A", align="center")
+    format_cells(ws4, "B", "0.00", "right")
+
+    # Monthly Solar Radiation Chart
+    fig_solar = plt.figure(figsize=(8, 6))
+    ax_solar = fig_solar.add_subplot(111)
+    ax_solar.barh(
+        monthly_solar_avg["YearMonth"],
+        monthly_solar_avg["Solar Radiation (kWh/m²/day)"],
+        color='goldenrod',
+        edgecolor='black'
+    )
+    ax_solar.set_xlabel("Solar Radiation (kWh/m²/day)")
+    ax_solar.set_title(f"Monthly Solar Radiation - {station_name}")
+    plt.tight_layout()
+
+    solar_chart_img = f"{file_id}_solar_monthly.jpg"
+    plt.savefig(solar_chart_img, dpi=300)
+    plt.close()
+
+    # Insert charts as sheets
     for title, img_file in [
         ("Scatter Chart", scatter_chart),
         ("Wind Rose Chart", bar_chart),
-        ("Monthly Summary Polar", summary_chart)
+        ("Monthly Summary Polar", summary_chart),
+        ("Monthly Solar Radiation Chart", solar_chart_img)
     ]:
         sheet = wb.create_sheet(title=title)
         img = ExcelImage(img_file)
         img.anchor = 'A1'
         sheet.add_image(img)
 
+    # Reorder sheets as requested
+    desired_order = [
+        "Info",
+        "Solar Radiation",
+        "Monthly Solar Radiation",
+        "Wind Data",
+        "Monthly Summary",
+        "Scatter Chart",
+        "Wind Rose Chart",
+        "Monthly Summary Polar",
+        "Monthly Solar Radiation Chart"
+    ]
+
+    wb._sheets = [wb[sheet] for sheet in desired_order if sheet in wb.sheetnames]
+
     wb.save(excel_filename)
 
     os.remove(scatter_chart)
     os.remove(bar_chart)
     os.remove(summary_chart)
+    os.remove(solar_chart_img)
 
     return excel_filename
