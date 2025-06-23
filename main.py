@@ -54,13 +54,29 @@ async def generate_files(request: WindDataRequest):
         "&format=JSON"
     )
 
+    solar_api_url = (
+        "https://power.larc.nasa.gov/api/temporal/daily/point"
+        f"?parameters=ALLSKY_SFC_SW_DWN"
+        f"&community=RE"
+        f"&latitude={request.latitude}"
+        f"&longitude={request.longitude}"
+        f"&start={request.start.strftime('%Y%m%d')}"
+        f"&end={request.end.strftime('%Y%m%d')}"
+        "&format=JSON"
+    )
+
     async with httpx.AsyncClient() as client:
         nasa_response = await client.get(nasa_api_url)
+        solar_response = await client.get(solar_api_url)
 
     if nasa_response.status_code != 200:
-        return {"error": "Failed to fetch data from NASA POWER API"}
+        return {"error": "Failed to fetch wind data from NASA POWER API"}
+    
+    if solar_response.status_code != 200:
+        return {"error": "Failed to fetch solar data from NASA POWER API"}
 
     nasa_json = nasa_response.json()
+    solar_json = solar_response.json()
 
     excel_filename = generate_excel_with_charts(
         file_id=file_id,
@@ -69,7 +85,8 @@ async def generate_files(request: WindDataRequest):
         longitude=request.longitude,
         start_date=request.start,
         end_date=request.end,
-        nasa_data=nasa_json
+        nasa_data=nasa_json,
+        solar_data=solar_json
     )
 
     return {
