@@ -20,7 +20,7 @@ app = FastAPI()
 ENVIRONMENT = os.getenv("ENVIRONMENT", "local")
 
 if ENVIRONMENT == "production":
-    allowed_origins = ["https://solar-sergioapp.netlify.app/"]
+    allowed_origins = ["https://solar-sergioapp.netlify.app"]
 else:
     allowed_origins = ["http://localhost:3000", "null"]
 
