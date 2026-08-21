@@ -22,11 +22,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.lock
+          pip install -r requirements.txt
 
       - name: Verify Python syntax
-        run: python -m py_compile main.py
-        continue-on-error: false
+        run: python -m py_compile main.py generate_excel.py
 
   lint:
     runs-on: ubuntu-latest
@@ -40,7 +39,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install ruff
+      - name: Install lint tools
         run: pip install ruff
 
       - name: Run ruff check
@@ -61,11 +60,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.lock
-
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
+          pip install -r requirements.txt
 
       - name: Run tests with coverage
-        run: pytest tests/ --cov=. --cov-report=xml --cov-fail-under=70
-        continue-on-error: false
+        run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=70
