@@ -1,14 +1,14 @@
 # main.py
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
-from datetime import date
-from dotenv import load_dotenv
 import os
 import uuid
+from datetime import date
+
 import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from generate_excel import generate_excel_with_charts
 
