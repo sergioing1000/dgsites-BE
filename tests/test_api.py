@@ -1,5 +1,3 @@
-import os
-import pytest
 
 
 def test_generate_files_invalid_body(client):
