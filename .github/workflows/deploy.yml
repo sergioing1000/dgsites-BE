@@ -60,15 +60,30 @@ jobs:
         run: |
           set -euo pipefail
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$LAST_TAG" ]; then
-            echo "Last tag: $LAST_TAG"
-            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline)
-            IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
-          else
-            echo "No previous tag found; scanning all commits"
-            COMMITS=$(git log --oneline)
-            MAJOR=0; MINOR=0; PATCH=0
+
+          if [ -z "$LAST_TAG" ]; then
+            # No previous tag exists — first release is always v1.0.0
+            NEW_VERSION="v1.0.0"
+            echo "No previous tag found; first release will be $NEW_VERSION"
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Proposed new tag: $NEW_VERSION"
+            exit 0
           fi
+
+          # Tag exists — check if it already points to HEAD (idempotent re-run)
+          TAG_COMMIT=$(git rev-list -n 1 "$LAST_TAG")
+          HEAD_COMMIT=$(git rev-parse HEAD)
+          if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ]; then
+            echo "Last tag $LAST_TAG already points to HEAD; reusing it"
+            echo "new_version=$LAST_TAG" >> $GITHUB_OUTPUT
+            echo "Proposed new tag: $LAST_TAG"
+            exit 0
+          fi
+
+          # Tag exists and points to an older commit — calculate semantic bump
+          echo "Last tag: $LAST_TAG"
+          COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
 
           if echo "$COMMITS" | grep -q "^.*feat"; then
             BUMP="minor"
@@ -92,8 +107,15 @@ jobs:
           set -euo pipefail
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
-            echo "::error::Tag $NEW_VERSION already exists; aborting to avoid conflict"
-            exit 1
+            TAG_COMMIT=$(git rev-list -n 1 "$NEW_VERSION")
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ]; then
+              echo "Tag $NEW_VERSION already exists and points to current HEAD; reusing it"
+              exit 0
+            else
+              echo "::error::Tag $NEW_VERSION already exists pointing to $TAG_COMMIT but HEAD is $HEAD_COMMIT; aborting to avoid conflict"
+              exit 1
+            fi
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
