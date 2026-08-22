@@ -4,13 +4,19 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,11 +26,12 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: requirements.lock
 
-      - name: Install dependencies
+      - name: Install dependencies (reproducible lock)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
 
       - name: Verify build
         run: python -m py_compile main.py generate_excel.py
@@ -35,7 +42,10 @@ jobs:
   tag:
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: "!startsWith(github.ref, 'refs/tags/')"
+    permissions:
+      contents: write
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
     steps:
@@ -48,10 +58,18 @@ jobs:
       - name: Generate version tag
         id: version
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Last tag: $LAST_TAG"
-          
-          COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          set -euo pipefail
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            echo "Last tag: $LAST_TAG"
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline)
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+          else
+            echo "No previous tag found; scanning all commits"
+            COMMITS=$(git log --oneline)
+            MAJOR=0; MINOR=0; PATCH=0
+          fi
+
           if echo "$COMMITS" | grep -q "^.*feat"; then
             BUMP="minor"
           elif echo "$COMMITS" | grep -q "^.*fix"; then
@@ -59,8 +77,7 @@ jobs:
           else
             BUMP="patch"
           fi
-          
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+
           case $BUMP in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
@@ -68,32 +85,48 @@ jobs:
           esac
           NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Creating tag: $NEW_VERSION"
+          echo "Proposed new tag: $NEW_VERSION"
 
       - name: Create and push tag
         run: |
+          set -euo pipefail
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag $NEW_VERSION already exists; aborting to avoid conflict"
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a ${{ steps.version.outputs.new_version }} -m "Release ${{ steps.version.outputs.new_version }}"
-          git push origin ${{ steps.version.outputs.new_version }}
+          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+          git push origin "$NEW_VERSION"
 
   deploy:
     needs: [validate, tag]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Deploy to Render
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
+          set -euo pipefail
+          if [ -z "${RENDER_API_KEY}" ] || [ -z "${RENDER_SERVICE_ID}" ]; then
+            echo "::error::Missing Render secrets (RENDER_API_KEY/RENDER_SERVICE_ID). Configure them in repository secrets before deploying."
+            exit 1
+          fi
           echo "Deploying to Render..."
-          curl -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+          curl --fail-with-body --retry 3 --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Content-Type: application/json"
 
   release:
     needs: [validate, tag]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
