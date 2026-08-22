@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Alignment
 
+
 def generate_excel_with_charts(file_id, station_name, latitude, longitude, start_date, end_date, nasa_data, solar_data):
     ws2m = nasa_data["properties"]["parameter"]["WS2M"]
     wd2m = nasa_data["properties"]["parameter"]["WD2M"]
