@@ -47,3 +47,6 @@ docs/
 
 # Superpowers
 docs/superpowers/
+
+# Local AI/editor configuration (not repository content)
+.opencode/

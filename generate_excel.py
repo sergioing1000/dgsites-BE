@@ -1,12 +1,14 @@
 # generate_excel.py
-import pandas as pd
+import os
+from datetime import datetime, timezone
+
 import matplotlib.pyplot as plt
 import numpy as np
-import os
-from datetime import datetime
+import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Alignment
+
 
 def generate_excel_with_charts(file_id, station_name, latitude, longitude, start_date, end_date, nasa_data, solar_data):
     ws2m = nasa_data["properties"]["parameter"]["WS2M"]
@@ -95,7 +97,7 @@ def generate_excel_with_charts(file_id, station_name, latitude, longitude, start
         monthly_solar_avg["YearMonth"] = monthly_solar_avg["YearMonth"].astype(str)
         monthly_solar_avg.to_excel(writer, sheet_name='Monthly Solar Radiation', index=False)
 
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         info_df = pd.DataFrame({
             "Parameter": ["Station Name", "Latitude", "Longitude", "Start Date", "End Date", "Author", "Generated At", "Google Maps Link"],
             "Value": [
