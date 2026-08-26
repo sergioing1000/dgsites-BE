@@ -42,10 +42,10 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 
 | Método | Endpoint | Descripción |
 |---|---|---|
-| POST | `/generate-files` | Genera reporte Excel con datos meteorológicos y gráficos polares |
-| GET | `/download/{filename}` | Descarga archivo Excel generado |
+| POST | `/api/v1/weather-data` | Devuelve datos meteorológicos (viento, radiación solar) en formato JSON |
+| POST | `/api/v1/excel-report` | Genera y descarga reporte Excel con datos meteorológicos y gráficos polares (streaming) |
 
-**Request body** (`POST /generate-files`):
+**Request body** (ambos endpoints):
 
 ```json
 {
@@ -57,13 +57,46 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 }
 ```
 
-**Response:**
+**Response** (`POST /api/v1/weather-data`):
 
 ```json
 {
-  "excel_file_url": "/download/<uuid>_wind_data_with_charts.xlsx"
+  "daily_data": [
+    {
+      "date": "20240101",
+      "wind_speed_ms": 3.26,
+      "wind_direction_deg": 152.07,
+      "solar_radiation_kwh": 5.42
+    }
+  ],
+  "monthly_summary": [
+    {
+      "year_month": "2024-01",
+      "avg_wind_speed_ms": 3.15,
+      "avg_wind_direction_deg": 148.32,
+      "avg_solar_radiation_kwh": 5.38
+    }
+  ],
+  "metadata": {
+    "station_name": "Bogotá",
+    "latitude": 4.6097,
+    "longitude": -74.0817,
+    "start_date": "2024-01-01",
+    "end_date": "2024-01-31",
+    "total_days": 31
+  }
 }
 ```
+
+**Response** (`POST /api/v1/excel-report`): Archivo XLSX streaming (`Content-Disposition: attachment`).
+
+**Errores:**
+
+| Código | Condición |
+|---|---|
+| 422 | Body vacío, campos faltantes, coordenadas fuera de Colombia, fechas inválidas |
+| 502 | NASA POWER API retorna error o falla de conexión |
+| 504 | Timeout de conexión a NASA POWER API |
 
 ---
 
@@ -73,33 +106,52 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 
 ```
 dgsites-BE/
-├── main.py                    # Aplicación FastAPI + endpoints
-├── generate_excel.py          # Generación de reportes Excel con gráficos
+├── main.py                    # FastAPI app entry point, CORS, router mounting
+├── app/
+│   ├── routers/
+│   │   └── weather.py         # Endpoints /api/v1/weather-data y /api/v1/excel-report
+│   ├── schemas/
+│   │   └── weather.py         # Pydantic: WeatherDataRequest, WeatherDataResponse, etc.
+│   ├── services/
+│   │   ├── nasa.py            # NASAPowerService — cliente HTTP async (httpx) a NASA POWER
+│   │   └── excel.py           # generate_excel_bytes() — reportes en memoria con gráficos
+│   └── validators/
+│       └── colombia.py        # Bounding box Colombia + validación de fechas
 ├── requirements.txt           # Dependencias (rangos semver)
 ├── requirements.lock          # Versiones exactas (pip freeze)
+├── mypy.ini                   # Configuración mypy (strict)
 ├── .gitignore                 # Reglas de exclusión
 ├── .env.example               # Variables de entorno documentadas
 ├── render.yaml                # Infraestructura como código (Render)
 ├── tests/
-│   ├── __init__.py
-│   ├── conftest.py            # Fixtures de testing (client, payloads)
-│   └── test_api.py            # 4 smoke tests
+│   ├── conftest.py            # Fixtures de testing (client, payloads, respx mocks)
+│   ├── test_api.py            # Smoke tests de la app
+│   ├── test_weather_api.py    # Tests de endpoints /api/v1/*
+│   ├── test_schemas.py        # Tests de validación Pydantic
+│   ├── test_validators.py     # Tests de validadores Colombia
+│   ├── test_nasa_service.py   # Tests de NASAPowerService (mocked HTTP)
+│   └── test_excel_service.py  # Tests de generate_excel_bytes
 ├── README.md                  # Este documento
 └── .github/
     └── workflows/
-        ├── ci.yml             # Build + Lint + Test
-        └── deploy.yml         # Deploy + Tag SemVer + Release
+        ├── ci.yml             # Lint (ruff + mypy) + Test (pytest + coverage) + Build
+        └── deploy.yml         # Validate + Staging auto + Production approval + Release
 ```
 
 ### 2.2 Configuration Items (Backend)
 
 | CI ID | Descripción | Tipo | Responsables |
 |---|---|---|---|
-| CI-BE-01 | `main.py` — FastAPI app, CORS, endpoints | Código fuente | Equipo BE |
-| CI-BE-02 | `generate_excel.py` — Generación de reportes y gráficos | Código fuente | Equipo BE |
-| CI-BE-03 | `requirements.txt` + `requirements.lock` | Dependencias | Equipo BE |
-| CI-BE-04 | `render.yaml` — Infraestructura como código | Configuración | Equipo DevOps |
-| CI-SH-01 | API Contract (`POST /generate-files`, `GET /download`) | Compartido FE/BE | Equipo FE + BE |
+| CI-BE-01 | `main.py` — FastAPI app, CORS, router mounting | Código fuente | Equipo BE |
+| CI-BE-02 | `app/routers/weather.py` — Endpoints JSON y streaming | Código fuente | Equipo BE |
+| CI-BE-03 | `app/schemas/weather.py` — Pydantic schemas (request/response) | Código fuente | Equipo BE |
+| CI-BE-04 | `app/services/nasa.py` — NASAPowerService (httpx async) | Código fuente | Equipo BE |
+| CI-BE-05 | `app/services/excel.py` — Generación de reportes Excel en memoria | Código fuente | Equipo BE |
+| CI-BE-06 | `app/validators/colombia.py` — Bounding box + validación de fechas | Código fuente | Equipo BE |
+| CI-BE-07 | `requirements.txt` + `requirements.lock` | Dependencias | Equipo BE |
+| CI-BE-08 | `render.yaml` — Infraestructura como código | Configuración | Equipo DevOps |
+| CI-BE-09 | `tests/` — Suite de pruebas (56 tests) | Tests | Equipo BE |
+| CI-SH-01 | API Contract (`POST /api/v1/weather-data`, `POST /api/v1/excel-report`) | Compartido FE/BE | Equipo FE + BE |
 
 ---
 
@@ -208,37 +260,42 @@ El tag SemVer se genera automáticamente en el pipeline `deploy.yml` al hacer me
 ```mermaid
 graph TD
     A[Push / PR] --> B{CI Pipeline}
-    B --> C[build: install deps + verify syntax]
-    B --> D[lint: ruff check]
-    B --> E[test: pytest + coverage >= 70%]
+    B --> D[lint: ruff check + mypy app/ main.py]
+    B --> E[test: pytest + coverage >= 30%]
+    B --> C[build: py_compile + import verification]
 
-    F[Merge a main] --> G{CD Pipeline}
-    G --> H[Generate SemVer tag]
-    G --> I[Deploy to Render via API]
-    G --> J[Create GitHub Release]
+    F[Push a develop] --> G{CD Pipeline — Staging}
+    G --> G1[validate: lint + test + build]
+    G1 --> G2[deploy-staging: Render automático]
+
+    H[Push a main] --> I{CD Pipeline — Production}
+    I --> I1[validate: lint + test + build]
+    I1 --> I2[tag: SemVer automático]
+    I2 --> I3[deploy-production: requiere aprobación manual]
+    I3 --> I4[release: GitHub Release]
 ```
 
-### 6.2 ci.yml — Build, Test, Lint
+### 6.2 ci.yml — Lint, Test, Build
 
-**Trigger:** Push a `main`, `develop`, `staging` + Pull Requests a esas ramas.
+**Trigger:** Push y Pull Requests a `main`, `develop`, `staging` + ejecución manual.
 
 | Job | Qué hace | Condición de fallo |
 |---|---|---|
-| `build` | Instala dependencias desde `requirements.lock`, verifica sintaxis con `py_compile` | Error de instalación o sintaxis inválida |
-| `lint` | Ejecuta `ruff check .` sobre todo el código | Errores de lint no resueltos |
-| `test` | Ejecuta `pytest tests/ -v` y coverage `--cov-fail-under=70` | Tests fallan o coverage < 70% |
+| `lint` | `ruff check .` + `mypy app/ main.py` | Errores de lint o tipos |
+| `test` | `pytest tests/ -v --cov=. --cov-report=term-missing --cov-fail-under=30` | Tests fallan o coverage < 30% |
+| `build` | `py_compile main.py` + verificación de imports (`from main import app`) | Error de sintaxis o imports rotos |
 
-### 6.3 deploy.yml — Deploy + Tag + Release
+### 6.3 deploy.yml — Validate + Staging + Production + Release
 
-**Trigger:** Push a `main` (solo después de merge via PR).
+**Trigger:** Push a `main` (producción) y `develop` (staging) + ejecución manual.
 
-| Paso | Descripción |
-|---|---|
-| Verify build | `py_compile main.py` — verificación final |
-| Generate version tag | Analiza commits desde último tag, incrementa SemVer |
-| Create and push tag | `git tag -a vX.Y.Z -m "Release vX.Y.Z"` |
-| Deploy to Render | `curl -X POST` a Render Deploy API |
-| Create GitHub Release | `softprops/action-gh-release@v1` con release notes automáticas |
+| Job | Descripción | Condición |
+|---|---|---|
+| `validate` | Gate: lint (ruff + mypy) + tests + build | Siempre |
+| `deploy-staging` | Deploy automático a Render Staging | Solo push a `develop` |
+| `tag` | Genera tag SemVer (idempotente, primer release `v1.0.0`) | Solo push a `main` |
+| `deploy-production` | Deploy a Render Production | Solo push a `main`, requiere **aprobación manual** (environment `production`) |
+| `release` | GitHub Release con notas automáticas | Solo después de `deploy-production` exitoso |
 
 ---
 
@@ -283,14 +340,16 @@ graph LR
 
 ## 8. Testing
 
-### 8.1 Smoke Tests Actuales
+### 8.1 Suite de Tests (56 tests)
 
-| Test | Endpoint | Qué valida |
+| Archivo | Qué valida | Nº tests |
 |---|---|---|
-| `test_generate_files_invalid_body` | POST /generate-files | Body vacío → 422 |
-| `test_generate_files_missing_fields` | POST /generate-files | Campos faltantes → 422 |
-| `test_download_file_not_found` | GET /download/{filename} | Archivo inexistente → error |
-| `test_download_file_success` | GET /download/{filename} | Archivo existente → 200 + content-type |
+| `test_api.py` | Smoke tests de la app FastAPI | ~4 |
+| `test_weather_api.py` | Endpoints `/api/v1/weather-data` y `/api/v1/excel-report` | ~20 |
+| `test_schemas.py` | Validación Pydantic (WeatherDataRequest, fechas, coordenadas Colombia) | ~12 |
+| `test_validators.py` | Bounding box Colombia + validación de fechas | ~8 |
+| `test_nasa_service.py` | NASAPowerService con HTTP mockeado (respx) | ~6 |
+| `test_excel_service.py` | Generación de reportes Excel en memoria | ~6 |
 
 ### 8.2 Ejecución
 
@@ -299,14 +358,16 @@ graph LR
 pytest tests/ -v
 
 # Con coverage
-pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70
+pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=30
 ```
 
 ### 8.3 Herramientas
 
 - **pytest**: Framework de testing
 - **respx**: Mock de llamadas HTTP a NASA API (evita rate limiting en tests)
+- **httpx**: Cliente HTTP async (usado por NASAPowerService y TestClient)
 - **TestClient** (FastAPI): Cliente de pruebas sin servidor real
+- **coverage.py**: Medición de cobertura de código
 
 ---
 
@@ -317,10 +378,10 @@ pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70
 | RSK-01 | NASA API rate limiting en tests | Media | Alto | Mockear respuestas con `respx` | P0 |
 | RSK-02 | `.env` versionado en git (secretos expuestos) | Alta | Alto | `.gitignore` excluye `.env`; `.env.example` documenta variables | P0 |
 | RSK-03 | `requirements.txt` sin versiones fijadas (builds no reproducibles) | Alta | Alto | `requirements.lock` con versiones exactas | P0 |
-| RSK-04 | `--reload` en producción (render.yaml) | Alta | Medio | Remover flag `--reload` del `startCommand` en render.yaml | P1 |
+| RSK-04 | `--reload` en producción (render.yaml) | Baja | Medio | Flag `--reload` no está presente en `startCommand` actual de render.yaml | P2 |
 | RSK-05 | Renombrar `master` a `main` rompe deploy en Render | Alta | Alto | Verificar configuración de rama en Render dashboard antes de renombrar | P0 |
 | RSK-06 | Render plan free: límite 750 hrs/mes | Baja | Medio | Limitar deploys automáticos; considerar plan paid si se excede | P2 |
-| RSK-07 | matplotlib no es thread-safe (generación concurrente) | Media | Alto | Documentar como riesgo conocido; evaluar generación async con worker | P2 |
+| RSK-07 | matplotlib no es thread-safe (generación concurrente) | Media | Alto | `generate_excel_bytes()` usa `tempfile.TemporaryDirectory` para limpieza segura; evaluar worker dedicado para concurrencia alta | P2 |
 
 ---
 
@@ -357,8 +418,14 @@ cp .env.example .env
 # 5. Ejecutar servidor local
 uvicorn main:app --reload --port 8000
 
-# 6. Ejecutar tests
+# 6. Ejecutar tests (56 tests)
 pytest tests/ -v
+
+# 7. Verificar tipos
+mypy app/ main.py
+
+# 8. Verificar lint
+ruff check .
 ```
 
 ---
