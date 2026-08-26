@@ -3,36 +3,98 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  validate:
+    name: Validate (lint + test + build)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.lock
+
+      - name: Install dependencies (reproducible lock)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Run ruff check
+        run: ruff check .
+
+      - name: Run mypy type check
+        run: mypy app/ main.py
+
+      - name: Verify Python syntax
+        run: python -m py_compile main.py
+
+      - name: Verify app imports
+        run: python -c "from main import app; print('App imports successfully')"
+
+      - name: Run tests with coverage
+        run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=30
+
+  tag:
+    name: Generate SemVer tag
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.lock
-
-      - name: Verify build
-        run: python -m py_compile main.py
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate version tag
         id: version
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          set -euo pipefail
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            # No previous tag exists — first release is always v1.0.0
+            NEW_VERSION="v1.0.0"
+            echo "No previous tag found; first release will be $NEW_VERSION"
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Proposed new tag: $NEW_VERSION"
+            exit 0
+          fi
+
+          # Tag exists — check if it already points to HEAD (idempotent re-run)
+          TAG_COMMIT=$(git rev-list -n 1 "$LAST_TAG")
+          HEAD_COMMIT=$(git rev-parse HEAD)
+          if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ]; then
+            echo "Last tag $LAST_TAG already points to HEAD; reusing it"
+            echo "new_version=$LAST_TAG" >> $GITHUB_OUTPUT
+            echo "Proposed new tag: $LAST_TAG"
+            exit 0
+          fi
+
+          # Tag exists and points to an older commit — calculate semantic bump
           echo "Last tag: $LAST_TAG"
-          
-          COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+
           if echo "$COMMITS" | grep -q "^.*feat"; then
             BUMP="minor"
           elif echo "$COMMITS" | grep -q "^.*fix"; then
@@ -40,8 +102,7 @@ jobs:
           else
             BUMP="patch"
           fi
-          
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+
           case $BUMP in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
@@ -49,39 +110,96 @@ jobs:
           esac
           NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Creating tag: $NEW_VERSION"
+          echo "Proposed new tag: $NEW_VERSION"
 
       - name: Create and push tag
         run: |
+          set -euo pipefail
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
+            TAG_COMMIT=$(git rev-list -n 1 "$NEW_VERSION")
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "$TAG_COMMIT" = "$HEAD_COMMIT" ]; then
+              echo "Tag $NEW_VERSION already exists and points to current HEAD; reusing it"
+              exit 0
+            else
+              echo "::error::Tag $NEW_VERSION already exists pointing to $TAG_COMMIT but HEAD is $HEAD_COMMIT; aborting to avoid conflict"
+              exit 1
+            fi
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a ${{ steps.version.outputs.new_version }} -m "Release ${{ steps.version.outputs.new_version }}"
-          git push origin ${{ steps.version.outputs.new_version }}
+          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+          git push origin "$NEW_VERSION"
 
-      - name: Deploy to Render
+  deploy-production:
+    name: Deploy to Render Production
+    needs: [validate, tag]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Trigger Render deploy
+        id: render_deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RELEASE_VERSION: ${{ needs.tag.outputs.new_version }}
         run: |
           set -euo pipefail
-          echo "Deploying to Render..."
-          if [ -z "${RENDER_API_KEY}" ]; then
-            echo "ERROR: RENDER_API_KEY secret is not set"
+          if [ -z "${RENDER_API_KEY}" ] || [ -z "${RENDER_SERVICE_ID}" ]; then
+            echo "::error::Missing Render secrets (RENDER_API_KEY/RENDER_SERVICE_ID). Configure them in the 'production' environment secrets before deploying."
             exit 1
           fi
-          if [ -z "${RENDER_SERVICE_ID}" ]; then
-            echo "ERROR: RENDER_SERVICE_ID secret is not set"
-            exit 1
-          fi
-          curl -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+          echo "Triggering Render Production deploy (commit ${{ github.sha }}, release ${RELEASE_VERSION})..."
+          RESPONSE=$(curl --fail-with-body --retry 3 --max-time 30 \
+            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Content-Type: application/json" || echo "Deploy triggered via Render webhook"
+            -H "Content-Type: application/json" \
+            -d '{"commitId":"${{ github.sha }}"}')
+          DEPLOY_ID=$(printf '%s' "$RESPONSE" | python -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "::error::Render API did not return a deploy id. Response: $RESPONSE"
+            exit 1
+          fi
+          echo "Render deploy triggered: $DEPLOY_ID"
+          echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke check (wait for live + GET /health)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}
+          DEPLOY_ID: ${{ steps.render_deploy.outputs.deploy_id }}
+          ENV_NAME: production
+        run: python .github/scripts/smoke_check.py
+
+  release:
+    name: Create GitHub Release
+    needs: [validate, tag, deploy-production]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.version.outputs.new_version }}
-          name: Release ${{ steps.version.outputs.new_version }}
+          tag_name: ${{ needs.tag.outputs.new_version }}
+          name: Release ${{ needs.tag.outputs.new_version }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

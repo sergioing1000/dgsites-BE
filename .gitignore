@@ -44,6 +44,10 @@ Thumbs.db
 
 # Docs / entregas maestría (solo local)
 docs/
+ENTREGABLE_FINAL*.md
 
 # Superpowers
 docs/superpowers/
+
+# Local AI/editor configuration (not repository content)
+.opencode/
