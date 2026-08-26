@@ -15,14 +15,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  lint:
+    name: Lint (ruff + mypy)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -34,35 +35,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.lock
 
-      - name: Verify Python syntax
-        run: python -m py_compile main.py generate_excel.py
-
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install lint tools
-        run: pip install ruff==0.16.4
-
       - name: Run ruff check
         run: ruff check .
 
+      - name: Run mypy type check
+        run: mypy app/ main.py
+
   test:
+    name: Test (pytest + coverage)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -76,3 +63,29 @@ jobs:
 
       - name: Run tests with coverage
         run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=30
+
+  build:
+    name: Build (syntax + import verification)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.lock
+
+      - name: Install dependencies (reproducible lock)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Verify Python syntax
+        run: python -m py_compile main.py
+
+      - name: Verify app imports
+        run: python -c "from main import app; print('App imports successfully')"
