@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -39,36 +39,14 @@ jobs:
       - name: Run mypy type check
         run: mypy app/ main.py
 
-      - name: Verify build
+      - name: Verify Python syntax
         run: python -m py_compile main.py
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
+      - name: Verify app imports
+        run: python -c "from main import app; print('App imports successfully')"
 
-  deploy-staging:
-    name: Deploy to Render Staging
-    needs: validate
-    if: github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: staging
-    steps:
-      - name: Deploy to Render Staging
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          set -euo pipefail
-          if [ -z "${RENDER_API_KEY}" ] || [ -z "${RENDER_SERVICE_ID}" ]; then
-            echo "::error::Missing Render secrets (RENDER_API_KEY/RENDER_SERVICE_ID). Configure them in the 'staging' environment secrets before deploying."
-            exit 1
-          fi
-          echo "Deploying to Render Staging (commit ${{ github.sha }})..."
-          curl --fail-with-body --retry 3 --max-time 30 \
-            -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"commitId":"${{ github.sha }}"}'
+      - name: Run tests with coverage
+        run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=30
 
   tag:
     name: Generate SemVer tag
@@ -159,10 +137,19 @@ jobs:
     needs: [validate, tag]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: production
     steps:
-      - name: Deploy to Render Production
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Trigger Render deploy
+        id: render_deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -173,12 +160,28 @@ jobs:
             echo "::error::Missing Render secrets (RENDER_API_KEY/RENDER_SERVICE_ID). Configure them in the 'production' environment secrets before deploying."
             exit 1
           fi
-          echo "Deploying to Render Production (commit ${{ github.sha }}, release ${RELEASE_VERSION})..."
-          curl --fail-with-body --retry 3 --max-time 30 \
+          echo "Triggering Render Production deploy (commit ${{ github.sha }}, release ${RELEASE_VERSION})..."
+          RESPONSE=$(curl --fail-with-body --retry 3 --max-time 30 \
             -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
             -H "Authorization: Bearer ${RENDER_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d '{"commitId":"${{ github.sha }}"}'
+            -d '{"commitId":"${{ github.sha }}"}')
+          DEPLOY_ID=$(printf '%s' "$RESPONSE" | python -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "::error::Render API did not return a deploy id. Response: $RESPONSE"
+            exit 1
+          fi
+          echo "Render deploy triggered: $DEPLOY_ID"
+          echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke check (wait for live + GET /health)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}
+          DEPLOY_ID: ${{ steps.render_deploy.outputs.deploy_id }}
+          ENV_NAME: production
+        run: python .github/scripts/smoke_check.py
 
   release:
     name: Create GitHub Release

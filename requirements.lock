@@ -1,280 +1,139 @@
-aiofile==3.11.1
-aiohappyeyeballs==2.6.2
-aiohttp==3.14.0
-aiosignal==1.4.0
-aiosqlite==0.22.1
-alembic==1.18.5
 annotated-doc==0.0.4
+    # via fastapi
 annotated-types==0.7.0
+    # via pydantic
 anyio==4.13.0
-asgi-correlation-id==5.0.0
-ast_serialize==0.5.0
-asyncpg==0.31.0
-attrs==26.1.0
-Authlib==1.7.2
-aws-cdk-lib==2.260.0
-aws-cdk.asset-awscli-v1==2.2.282
-aws-cdk.asset-node-proxy-agent-v6==2.1.2
-aws-cdk.cloud-assembly-schema==54.5.0
-aws-xray-sdk==2.15.0
-aws_lambda_powertools==3.30.0
-babel==2.18.0
-backrefs==5.9
-banks==2.4.2
-bcrypt==5.0.0
-beartype==0.22.9
-beautifulsoup4==4.15.0
-boto3==1.43.19
-botocore==1.43.19
-bracex==3.0.1
-build==1.5.1
-cachetools==7.1.4
-caio==0.9.25
-cattrs==26.1.0
+    # via
+    #   httpx
+    #   starlette
+    #   watchfiles
 certifi==2026.7.22
-cffi==2.0.0
-cfgv==3.5.0
-charset-normalizer==3.5.1
-chromadb==1.5.9
+    # via
+    #   httpcore
+    #   httpx
 click==8.4.2
-colorama==0.4.6
-constructs==10.6.0
+    # via uvicorn
 contourpy==1.3.3
-coverage==7.15.0
-cryptography==48.0.0
+    # via matplotlib
+coverage[toml]==7.15.0
+    # via pytest-cov
 cycler==0.12.1
-cyclopts==4.19.0
-dataclasses-json==0.6.7
-Deprecated==1.3.1
-dirtyjson==1.0.8
-distlib==0.4.3
-distro==1.9.0
-dnspython==2.8.0
--e git+https://github.com/Pipe914/opencode-stack.git@c449ab14634f77f7e33050cbd737a18385864bed#egg=docframework&subdirectory=framework/tooling
-docker==7.1.0
-docstring_parser==0.18.0
-durationpy==0.10
-ecdsa==0.19.2
-email-validator==2.1.0
-et_xmlfile==2.0.0
-exceptiongroup==1.3.1
-factory_boy==3.3.3
-Faker==40.28.1
+    # via matplotlib
+et-xmlfile==2.0.0
+    # via openpyxl
 fastapi==0.138.1
-fastapi-cli==0.0.27
-fastmcp==3.4.2
-fastmcp-slim==3.4.2
-filelock==3.29.7
-filetype==1.2.0
-flatbuffers==25.12.19
+    # via -r requirements.txt
 fonttools==4.63.0
-frozenlist==1.8.0
-fsspec==2026.4.0
-ghp-import==2.1.0
-googleapis-common-protos==1.75.0
-greenlet==3.5.1
-griffe==2.0.2
-griffecli==2.0.2
-griffelib==2.0.2
-grpcio==1.81.0
+    # via matplotlib
 h11==0.16.0
-hf-xet==1.5.1
+    # via
+    #   httpcore
+    #   uvicorn
 httpcore==1.0.9
+    # via httpx
 httptools==0.8.0
+    # via uvicorn
 httpx==0.28.1
-httpx-sse==0.4.3
-huggingface_hub==1.23.0
-identify==2.6.19
+    # via
+    #   -r requirements.txt
+    #   respx
 idna==3.18
-importlib_resources==7.1.0
+    # via
+    #   anyio
+    #   httpx
 iniconfig==2.3.0
-jaraco.classes==3.4.0
-jaraco.context==6.1.2
-jaraco.functools==4.5.0
-Jinja2==3.1.6
-jiter==0.15.0
-jmespath==1.1.0
-joblib==1.5.3
-joserfc==1.7.1
-jsii==1.137.0
-jsonpatch==1.33
-jsonpath-ng==1.8.0
-jsonpointer==3.1.1
-jsonref==1.1.0
-jsonschema==4.25.1
-jsonschema-path==0.5.0
-jsonschema-specifications==2025.9.1
-keyring==25.7.0
+    # via pytest
 kiwisolver==1.5.0
-kubernetes==36.0.2
-langchain-classic==1.0.7
-langchain-community==0.4.2
-langchain-core==1.4.0
-langchain-experimental==0.4.2
-langchain-openai==1.2.2
-langchain-protocol==0.0.16
-langchain-text-splitters==1.1.2
-langsmith==0.8.8
+    # via matplotlib
 librt==0.11.0
-limits==5.8.0
-llama-cloud==0.1.46
-llama-cloud-services==0.6.94
-llama-index-core==0.14.22
-llama-index-instrumentation==0.5.0
-llama-index-workflows==2.20.0
-llama-parse==0.6.94
-loguru==0.7.3
-lxml==6.1.1
-Mako==1.3.12
-Markdown==3.10.3
-markdown-it-py==4.2.0
-MarkupSafe==3.0.3
-marshmallow==3.26.2
+    # via mypy
 matplotlib==3.11.1
-mcp==1.28.0
-mdurl==0.1.2
-mergedeep==1.3.4
-mkdocs==1.6.1
-mkdocs-awesome-pages-plugin==2.10.1
-mkdocs-get-deps==0.2.2
-mkdocs-material==9.6.15
-mkdocs-material-extensions==1.3.1
-mmh3==5.2.1
-more-itertools==11.1.0
-moto==5.2.2
-multidict==6.7.1
+    # via -r requirements.txt
 mypy==1.20.2
-mypy_extensions==1.1.0
-natsort==8.4.0
-nest-asyncio==1.6.0
-networkx==3.6.1
-nltk==3.9.4
-nodeenv==1.10.0
+    # via -r requirements.txt
+mypy-extensions==1.1.0
+    # via mypy
 numpy==2.4.6
-oauthlib==3.3.1
-onnxruntime==1.27.0
-openai==2.40.0
-openai-agents==0.18.1
-openapi-pydantic==0.5.1
+    # via
+    #   -r requirements.txt
+    #   contourpy
+    #   matplotlib
+    #   pandas
 openpyxl==3.1.5
-opentelemetry-api==1.43.0
-opentelemetry-exporter-otlp-proto-common==1.43.0
-opentelemetry-exporter-otlp-proto-grpc==1.43.0
-opentelemetry-proto==1.43.0
-opentelemetry-sdk==1.43.0
-opentelemetry-semantic-conventions==0.64b0
-orjson==3.11.9
-overrides==7.7.0
+    # via -r requirements.txt
 packaging==26.3
-paginate==0.5.7
+    # via
+    #   matplotlib
+    #   pytest
 pandas==3.0.3
-passlib==1.7.4
-pathable==0.6.0
+    # via -r requirements.txt
 pathspec==1.1.1
-patsy==1.0.2
-pdfminer.six==20251230
-pdfplumber==0.11.9
+    # via mypy
 pillow==12.2.0
-platformdirs==4.11.3
+    # via matplotlib
 pluggy==1.6.0
-pre_commit==4.6.0
--e git+https://github.com/Pipe914/project-analizador.git@d2f9d1f0f7de31541e84431631496f60bdb2ba29#egg=predictor_mundial&subdirectory=backend
--e git+https://github.com/Pipe914/project-reservas-tutaina.git@dbb588816da85e064ba7cf7a1eaccc81a7e79ccb#egg=project_reservas
-prometheus-fastapi-instrumentator==8.0.0
-prometheus_client==0.25.0
-propcache==0.5.2
-protobuf==7.35.0
-publication==0.0.3
-py-key-value-aio==0.4.5
-py-partiql-parser==0.6.3
-pyasn1==0.6.3
-pybase64==1.4.3
-pybreaker==1.4.1
-pycparser==3.0
+    # via
+    #   pytest
+    #   pytest-cov
 pydantic==2.13.4
-pydantic-settings==2.14.2
-pydantic_core==2.46.4
-Pygments==2.21.0
-PyJWT==2.13.0
-pymdown-extensions==10.21.3
-pymilvus==3.0.0
-PyMuPDF==1.27.2.3
+    # via
+    #   -r requirements.txt
+    #   fastapi
+pydantic-core==2.46.4
+    # via pydantic
+pygments==2.21.0
+    # via pytest
 pyparsing==3.3.2
-PyPDF2==3.0.1
-pypdfium2==5.9.0
-pyperclip==1.11.0
-PyPika==0.51.1
-pyproject_hooks==1.2.0
+    # via matplotlib
 pytest==8.4.1
+    # via
+    #   -r requirements.txt
+    #   pytest-asyncio
+    #   pytest-cov
 pytest-asyncio==0.26.0
+    # via -r requirements.txt
 pytest-cov==7.1.0
-pytest-mock==3.15.1
+    # via -r requirements.txt
 python-dateutil==2.9.0.post0
-python-discovery==1.4.4
-python-docx==1.2.0
+    # via
+    #   matplotlib
+    #   pandas
 python-dotenv==1.2.2
-python-jose==3.3.0
-python-multipart==0.0.30
-python-pptx==1.0.2
-pytz==2026.2
-PyYAML==6.0.3
-pyyaml_env_tag==1.1
-redis==8.1.0
-referencing==0.37.0
-regex==2026.5.9
-requests==2.34.2
-requests-oauthlib==2.0.0
-requests-toolbelt==1.0.0
-responses==0.26.1
+    # via
+    #   -r requirements.txt
+    #   uvicorn
+pyyaml==6.0.3
+    # via uvicorn
 respx==0.23.1
-rich==15.0.0
-rich-rst==2.0.1
-rich-toolkit==0.20.1
-rpds-py==2026.6.3
-rsa==4.9.1
+    # via -r requirements.txt
 ruff==0.16.4
-s3transfer==0.18.0
-scipy==1.18.0
-setuptools==75.3.2
--e git+https://github.com/UniSabanaAvi/avi-microservices-platform.git@f53486fec036f235a35fcdcf68160751e5c54ea1#egg=shared_lib&subdirectory=packages/shared-lib
-shellingham==1.5.4
+    # via -r requirements.txt
 six==1.17.0
-slowapi==0.1.9
-sniffio==1.3.1
-soupsieve==2.8.4
-SQLAlchemy==2.0.51
-sse-starlette==3.4.5
+    # via python-dateutil
 starlette==1.3.1
-statsmodels==0.14.6
+    # via fastapi
 structlog==26.1.0
-tenacity==9.1.4
-tiktoken==0.13.0
-tinytag==2.2.1
-tokenizers==0.23.1
-tqdm==4.67.3
-typeguard==2.13.3
-typer==0.26.7
+    # via -r requirements.txt
 types-openpyxl==3.1.5.20260807
-typing-inspect==0.9.0
+    # via -r requirements.txt
+typing-extensions==4.16.0
+    # via
+    #   anyio
+    #   fastapi
+    #   mypy
+    #   pydantic
+    #   pydantic-core
+    #   starlette
+    #   typing-inspection
 typing-inspection==0.4.2
-typing_extensions==4.16.0
-ujson==5.13.0
-uncalled-for==0.3.2
-urllib3==2.7.0
-uuid_utils==0.16.0
-uvicorn==0.51.0
+    # via
+    #   fastapi
+    #   pydantic
+uvicorn[standard]==0.51.0
+    # via -r requirements.txt
 uvloop==0.22.1
-virtualenv==21.6.0
-watchdog==6.0.0
+    # via uvicorn
 watchfiles==1.2.0
-wcmatch==11.0.1
-websocket-client==1.9.0
+    # via uvicorn
 websockets==16.0
-Werkzeug==3.1.8
-wheel==0.45.1
-wrapt==2.2.1
-xlsxwriter==3.2.9
-xmltodict==1.0.4
-xxhash==3.7.0
-yarl==1.24.2
-zstandard==0.25.0
+    # via uvicorn

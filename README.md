@@ -23,11 +23,24 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 ### 1.1 Arquitectura
 
 ```
-┌─────────────────┐     HTTP/REST     ┌─────────────────┐
-│   Frontend      │ <───────────────> │   Backend       │
-│   React         │                   │   FastAPI       │
-│   (Netlify)     │                   │   (Render)      │
-└─────────────────┘                   └────────┬────────┘
+┌─────────────────┐     HTTP/REST     ┌─────────────────────────────────────┐
+│   Frontend      │ <───────────────> │   Backend                           │
+│   React         │                   │   FastAPI                           │
+│   (Netlify)     │                   │   (Render)                          │
+└─────────────────┘                   │                                     │
+                                      │  ┌───────────────────────────────┐ │
+                                      │  │ Middleware Stack              │ │
+                                      │  │  • CorrelationIDMiddleware    │ │
+                                      │  │    (X-Request-ID tracking)    │ │
+                                      │  │  • CORSMiddleware             │ │
+                                      │  └───────────────────────────────┘ │
+                                      │                                     │
+                                      │  ┌───────────────────────────────┐ │
+                                      │  │ Routers                       │ │
+                                      │  │  • /health (health.py)        │ │
+                                      │  │  • /api/v1/* (weather.py)     │ │
+                                      │  └───────────────────────────────┘ │
+                                      └────────┬──────────────────────────┘
                                                │
                                     ┌──────────┼──────────┐
                                     ▼                     ▼
@@ -42,8 +55,23 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 
 | Método | Endpoint | Descripción |
 |---|---|---|
+| GET | `/health` | Health check — retorna `{"status":"healthy","version":"1.0.0","environment":"local"}` |
 | POST | `/api/v1/weather-data` | Devuelve datos meteorológicos (viento, radiación solar) en formato JSON |
 | POST | `/api/v1/excel-report` | Genera y descarga reporte Excel con datos meteorológicos y gráficos polares (streaming) |
+
+#### Correlation ID (X-Request-ID)
+
+Todos los requests pasan por `CorrelationIDMiddleware` (`app/middleware.py`):
+
+- Si el request incluye header `X-Request-ID`, se propaga; si no, se genera un UUID4.
+- El ID se bindea a `structlog.contextvars` para que **todos los logs** del request incluyan `request_id`.
+- El response incluye el header `X-Request-ID` con el ID resuelto.
+
+Ejemplo de log estructurado:
+
+```json
+{"event": "NASA API call", "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "level": "info"}
+```
 
 **Request body** (ambos endpoints):
 
@@ -90,6 +118,16 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 
 **Response** (`POST /api/v1/excel-report`): Archivo XLSX streaming (`Content-Disposition: attachment`).
 
+**Response** (`GET /health`):
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "environment": "local"
+}
+```
+
 **Errores:**
 
 | Código | Condición |
@@ -106,9 +144,11 @@ Este documento describe la **estrategia de gestión de configuración** aplicada
 
 ```
 dgsites-BE/
-├── main.py                    # FastAPI app entry point, CORS, router mounting
+├── main.py                    # FastAPI app entry point, CORS, middleware, router mounting
 ├── app/
+│   ├── middleware.py          # CorrelationIDMiddleware (X-Request-ID + structlog contextvars)
 │   ├── routers/
+│   │   ├── health.py          # GET /health — health check endpoint
 │   │   └── weather.py         # Endpoints /api/v1/weather-data y /api/v1/excel-report
 │   ├── schemas/
 │   │   └── weather.py         # Pydantic: WeatherDataRequest, WeatherDataResponse, etc.
@@ -126,6 +166,8 @@ dgsites-BE/
 ├── tests/
 │   ├── conftest.py            # Fixtures de testing (client, payloads, respx mocks)
 │   ├── test_api.py            # Smoke tests de la app
+│   ├── test_health.py         # Tests de GET /health
+│   ├── test_correlation_id.py # Tests de CorrelationIDMiddleware
 │   ├── test_weather_api.py    # Tests de endpoints /api/v1/*
 │   ├── test_schemas.py        # Tests de validación Pydantic
 │   ├── test_validators.py     # Tests de validadores Colombia
@@ -133,25 +175,28 @@ dgsites-BE/
 │   └── test_excel_service.py  # Tests de generate_excel_bytes
 ├── README.md                  # Este documento
 └── .github/
+    ├── CI_CD_SETUP.md         # Guía de configuración manual (GitHub + Render)
     └── workflows/
         ├── ci.yml             # Lint (ruff + mypy) + Test (pytest + coverage) + Build
-        └── deploy.yml         # Validate + Staging auto + Production approval + Release
+        └── deploy.yml         # Validate + Production approval + Release (push a main)
 ```
 
 ### 2.2 Configuration Items (Backend)
 
 | CI ID | Descripción | Tipo | Responsables |
 |---|---|---|---|
-| CI-BE-01 | `main.py` — FastAPI app, CORS, router mounting | Código fuente | Equipo BE |
-| CI-BE-02 | `app/routers/weather.py` — Endpoints JSON y streaming | Código fuente | Equipo BE |
-| CI-BE-03 | `app/schemas/weather.py` — Pydantic schemas (request/response) | Código fuente | Equipo BE |
-| CI-BE-04 | `app/services/nasa.py` — NASAPowerService (httpx async) | Código fuente | Equipo BE |
-| CI-BE-05 | `app/services/excel.py` — Generación de reportes Excel en memoria | Código fuente | Equipo BE |
-| CI-BE-06 | `app/validators/colombia.py` — Bounding box + validación de fechas | Código fuente | Equipo BE |
-| CI-BE-07 | `requirements.txt` + `requirements.lock` | Dependencias | Equipo BE |
-| CI-BE-08 | `render.yaml` — Infraestructura como código | Configuración | Equipo DevOps |
-| CI-BE-09 | `tests/` — Suite de pruebas (56 tests) | Tests | Equipo BE |
-| CI-SH-01 | API Contract (`POST /api/v1/weather-data`, `POST /api/v1/excel-report`) | Compartido FE/BE | Equipo FE + BE |
+| CI-BE-01 | `main.py` — FastAPI app, CORS, middleware, router mounting | Código fuente | Equipo BE |
+| CI-BE-02 | `app/middleware.py` — CorrelationIDMiddleware (X-Request-ID) | Código fuente | Equipo BE |
+| CI-BE-03 | `app/routers/health.py` — GET /health endpoint | Código fuente | Equipo BE |
+| CI-BE-04 | `app/routers/weather.py` — Endpoints JSON y streaming | Código fuente | Equipo BE |
+| CI-BE-05 | `app/schemas/weather.py` — Pydantic schemas (request/response) | Código fuente | Equipo BE |
+| CI-BE-06 | `app/services/nasa.py` — NASAPowerService (httpx async) | Código fuente | Equipo BE |
+| CI-BE-07 | `app/services/excel.py` — Generación de reportes Excel en memoria | Código fuente | Equipo BE |
+| CI-BE-08 | `app/validators/colombia.py` — Bounding box + validación de fechas | Código fuente | Equipo BE |
+| CI-BE-09 | `requirements.txt` + `requirements.lock` | Dependencias | Equipo BE |
+| CI-BE-10 | `render.yaml` — Infraestructura como código | Configuración | Equipo DevOps |
+| CI-BE-11 | `tests/` — Suite de pruebas (69 tests) | Tests | Equipo BE |
+| CI-SH-01 | API Contract (`GET /health`, `POST /api/v1/weather-data`, `POST /api/v1/excel-report`) | Compartido FE/BE | Equipo FE + BE |
 
 ---
 
@@ -162,8 +207,8 @@ dgsites-BE/
 | Rama | Propósito | Protección |
 |---|---|---|
 | `main` | Producción — desplegable a Render | PR + 1 approval + CI passing |
-| `staging` | Pre-producción — validación final | PR required |
-| `develop` | Integración continua | PR required |
+| `staging` | Validación CI/PR — sin deploy a Render | PR required |
+| `develop` | Integración continua — solo CI | PR required |
 | `feature/*` | Nuevas funcionalidades | Sin protección |
 | `hotfix/*` | Correcciones urgentes en producción | Sin protección |
 
@@ -177,6 +222,10 @@ graph LR
     D -->|tag automático| E[vX.Y.Z]
     D -->|deploy automático| F[Render Production]
 ```
+
+> La rama `staging` se usa únicamente como rama de validación CI/PR.
+> No existe servicio de Render staging ni environment de staging en GitHub.
+> El único servicio Render apunta a `main` (producción).
 
 ### 3.3 Reglas de Merge
 
@@ -264,16 +313,15 @@ graph TD
     B --> E[test: pytest + coverage >= 30%]
     B --> C[build: py_compile + import verification]
 
-    F[Push a develop] --> G{CD Pipeline — Staging}
-    G --> G1[validate: lint + test + build]
-    G1 --> G2[deploy-staging: Render automático]
-
     H[Push a main] --> I{CD Pipeline — Production}
     I --> I1[validate: lint + test + build]
     I1 --> I2[tag: SemVer automático]
     I2 --> I3[deploy-production: requiere aprobación manual]
     I3 --> I4[release: GitHub Release]
 ```
+
+> La rama `develop` ejecuta únicamente CI (`ci.yml`): lint, test, build.
+> No dispara deploy ni consume secrets de Render.
 
 ### 6.2 ci.yml — Lint, Test, Build
 
@@ -285,17 +333,29 @@ graph TD
 | `test` | `pytest tests/ -v --cov=. --cov-report=term-missing --cov-fail-under=30` | Tests fallan o coverage < 30% |
 | `build` | `py_compile main.py` + verificación de imports (`from main import app`) | Error de sintaxis o imports rotos |
 
-### 6.3 deploy.yml — Validate + Staging + Production + Release
+### 6.3 deploy.yml — Validate + Production + Release
 
-**Trigger:** Push a `main` (producción) y `develop` (staging) + ejecución manual.
+**Trigger:** Push a `main` (producción) + ejecución manual.
 
 | Job | Descripción | Condición |
 |---|---|---|
 | `validate` | Gate: lint (ruff + mypy) + tests + build | Siempre |
-| `deploy-staging` | Deploy automático a Render Staging | Solo push a `develop` |
 | `tag` | Genera tag SemVer (idempotente, primer release `v1.0.0`) | Solo push a `main` |
 | `deploy-production` | Deploy a Render Production | Solo push a `main`, requiere **aprobación manual** (environment `production`) |
 | `release` | GitHub Release con notas automáticas | Solo después de `deploy-production` exitoso |
+
+> La rama `develop` no dispara `deploy.yml`. Ejecuta únicamente CI (`ci.yml`).
+> No existe job `deploy-staging` ni servicio Render de staging.
+
+### 6.4 Smoke Check Post-Deploy
+
+Tras disparar el deploy en Render, el workflow verifica la salud del servicio:
+
+1. **Polling del deploy**: consulta la API de Render hasta que el deploy alcance estado `live` (timeout: 10 min).
+2. **Health check**: `GET {RENDER_SERVICE_URL}/health` debe retornar `{"status":"healthy"}`.
+3. **Correlation ID**: el response incluye `X-Request-ID` (generado por `CorrelationIDMiddleware`), útil para trazabilidad en logs.
+
+> **Nota:** `RENDER_SERVICE_URL` debe configurarse como **environment variable** (no secret) en GitHub → Settings → Environments → `<env>`. Ver `.github/CI_CD_SETUP.md` para detalles de configuración manual.
 
 ---
 
@@ -320,7 +380,7 @@ graph LR
     E --> F[Code Review + CI passing]
     F --> G[Merge a develop]
     G --> H[Integración a staging]
-    H --> I[Validación en pre-producción]
+    H --> I[Validación CI/PR en staging]
     I --> J[Merge a main + Tag SemVer]
     J --> K[Actualización de baselines]
 ```
@@ -340,11 +400,13 @@ graph LR
 
 ## 8. Testing
 
-### 8.1 Suite de Tests (56 tests)
+### 8.1 Suite de Tests (69 tests)
 
 | Archivo | Qué valida | Nº tests |
 |---|---|---|
-| `test_api.py` | Smoke tests de la app FastAPI | ~4 |
+| `test_api.py` | Smoke tests de la app FastAPI | ~2 |
+| `test_health.py` | `GET /health` endpoint (status, version, environment) | ~6 |
+| `test_correlation_id.py` | CorrelationIDMiddleware (X-Request-ID propagation/generation) | ~11 |
 | `test_weather_api.py` | Endpoints `/api/v1/weather-data` y `/api/v1/excel-report` | ~20 |
 | `test_schemas.py` | Validación Pydantic (WeatherDataRequest, fechas, coordenadas Colombia) | ~12 |
 | `test_validators.py` | Bounding box Colombia + validación de fechas | ~8 |
@@ -418,7 +480,7 @@ cp .env.example .env
 # 5. Ejecutar servidor local
 uvicorn main:app --reload --port 8000
 
-# 6. Ejecutar tests (56 tests)
+# 6. Ejecutar tests (69 tests)
 pytest tests/ -v
 
 # 7. Verificar tipos

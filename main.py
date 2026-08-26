@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.middleware import CorrelationIDMiddleware
+from app.routers.health import router as health_router
 from app.routers.weather import router as weather_router
 
 # Load .env file before any configuration that reads environment variables.
@@ -32,6 +34,7 @@ if ENVIRONMENT == "production":
 else:
     allowed_origins = ["http://localhost:3000", "null"]
 
+app.add_middleware(CorrelationIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -41,4 +44,5 @@ app.add_middleware(
 )
 
 # Mount API routers
+app.include_router(health_router)
 app.include_router(weather_router)
